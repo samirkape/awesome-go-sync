@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/samirkape/awesome-go-bot/parser"
+	"github.com/samirkape/awesome-go-sync/parser"
 )
 
 func main() {
