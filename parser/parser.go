@@ -22,7 +22,7 @@ var PackageCounter int
 func downloadMd() io.Reader {
 	b, err := http.Get(URL)
 	if err != nil {
-		log.Println("unable to get md file from github")
+		log.Printf("unable to get md file from github: %v", err)
 		return nil
 	}
 	defer b.Body.Close()
@@ -30,7 +30,7 @@ func downloadMd() io.Reader {
 	buf, err := ioutil.ReadAll(b.Body)
 
 	if err != nil {
-		log.Println("unable to get md file from github")
+		log.Printf("unable to get md file from github %v", err)
 		return nil
 	}
 
@@ -42,13 +42,21 @@ func SyncReq(newCount int) (bool, int) {
 	var result olderCount
 	collection := MongoClient.Database(Config.UserDBName).Collection(Config.UserDBOldCtr)
 	collection.FindOne(context.TODO(), bson.D{}).Decode(&result)
-	return newCount > result.Old, newCount - result.Old
+	if newCount > result.Old {
+		update := bson.D{{Key: "old", Value: newCount}}
+		_, err := collection.ReplaceOne(context.TODO(), bson.D{}, update)
+		if err != nil {
+			log.Printf("enable to update old pkg count: %v", err)
+			return false, newCount - result.Old
+		}
+		return true, newCount - result.Old
+	}
+	return false, newCount - result.Old
 }
 
 func Sync() {
 	defer MongoClient.Disconnect(context.TODO())
 	buf := downloadMd()
-	// f := FileHandle(FILE)
 	m, count := GetSlice(buf)
 	final := SplitLinks(m)
 	check, diff := SyncReq(count)
