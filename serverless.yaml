@@ -1,0 +1,15 @@
+service: awesome-go-sync
+
+provider:
+  name: aws
+  runtime: go1.x
+
+package:
+ exclude:
+   - ./**
+ include:
+   - ./bin/**
+
+functions:
+  main:
+    handler: bin/main

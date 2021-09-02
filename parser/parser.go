@@ -2,9 +2,11 @@ package parser
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -17,21 +19,23 @@ import (
 
 var PackageCounter int
 
-func downloadMd() *os.File {
+func downloadMd() io.Reader {
 	b, err := http.Get(URL)
 	if err != nil {
 		log.Println("unable to get md file from github")
 		return nil
 	}
 	defer b.Body.Close()
-	file, err := os.Create(FILE)
+
+	buf, err := ioutil.ReadAll(b.Body)
+
 	if err != nil {
 		log.Println("unable to get md file from github")
 		return nil
 	}
-	io.Copy(file, b.Body)
+
 	log.Println("done downloading readme.md from github")
-	return file
+	return bytes.NewReader(buf)
 }
 
 func SyncReq(newCount int) (bool, int) {
@@ -43,9 +47,9 @@ func SyncReq(newCount int) (bool, int) {
 
 func Sync() {
 	defer MongoClient.Disconnect(context.TODO())
-	downloadMd()
-	f := FileHandle(FILE)
-	m, count := GetSlice(f)
+	buf := downloadMd()
+	// f := FileHandle(FILE)
+	m, count := GetSlice(buf)
 	final := SplitLinks(m)
 	check, diff := SyncReq(count)
 	if check {
@@ -68,7 +72,7 @@ func FileHandle(filename string) *os.File {
 
 // GetSlice is a driver function that gets filehandler as an input,
 // reads file line-by-line and store slice of raw links into their particular map key
-func GetSlice(f *os.File) (map[string][]string, int) {
+func GetSlice(f io.Reader) (map[string][]string, int) {
 	rd := bufio.NewReader(f)
 	m := make(map[string][]string)
 	var links []string
