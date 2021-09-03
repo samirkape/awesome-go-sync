@@ -68,7 +68,7 @@ type Package struct {
 	Name  string `bson:"name" json:"name"`
 	URL   string `bson:"url" json:"url"`
 	Info  string `bson:"info" json:"info"`
-	Stars int
+	Stars int    `bson:"stars" json:"stars"`
 	// ID   primitive.ObjectID `bson:"_id" json:"id,omitempty"`
 }
 

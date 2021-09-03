@@ -13,9 +13,9 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -143,11 +143,13 @@ func trimString(raw string) (name, url, description string) {
 	return name, url, info[1]
 }
 
-func getRepoStars(rawUrl string) (int, error) {
-	if rawUrl == "" {
-		return 0, nil
-	}
+func getRepoStars(name, rawUrl, info string, tmpLinks *[]Package, mu *sync.Mutex, wg *sync.WaitGroup) {
+	defer wg.Done()
 	var repoMeta RepoDetails
+	if rawUrl == "" {
+		return
+	}
+
 	tmpFields := strings.Split(rawUrl, "/")
 	u, _ := url.Parse(STARS)
 	u.Path = path.Join(u.Path, tmpFields[len(tmpFields)-2])
@@ -155,33 +157,45 @@ func getRepoStars(rawUrl string) (int, error) {
 	url := u.String()
 	resp, err := http.Get(url)
 	if err != nil {
-		log.Printf("unable to get star count: %v", err)
-		return -1, err
+		log.Printf("unable to get star count for %s: %v", url, err)
+		return
 	}
+
 	json.NewDecoder(resp.Body).Decode(&repoMeta)
-	return repoMeta.StargazersCount, nil
+	LD := Package{
+		Name:  name,
+		URL:   url,
+		Info:  info,
+		Stars: repoMeta.StargazersCount,
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	*tmpLinks = append(*tmpLinks, LD)
 }
 
 // Split is a driver function for splitting the Line from []Package
 // it calls TrimString for splitting and handles a creation and appending of
 // a result into a LinkDetails struct.
 func SplitLinks(m map[string][]string) Categories {
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	wg.Add(len(m))
+
 	categories := make(Categories, len(m))
 	i := 0
+
 	for key, value := range m {
-		var TmpLinks []Package
+		var tmpLinks []Package
 		token := strings.IndexByte(key, ' ')
 		categories[i].Title = key[token+1:]
 		for _, e := range value {
 			name, url, info := trimString(e)
-			stars, _ := getRepoStars(url)
-			LD := Package{Name: name, URL: url, Info: info, Stars: stars}
-			if reflect.ValueOf(LD).IsZero() {
-				continue
-			}
-			TmpLinks = append(TmpLinks, LD)
+			go getRepoStars(name, url, info, &tmpLinks, &mu, &wg)
 		}
-		categories[i].PackageDetails = append(categories[i].PackageDetails, TmpLinks...)
+		wg.Wait()
+		categories[i].PackageDetails = append(categories[i].PackageDetails, tmpLinks...)
 		i++
 	}
 	log.Println("package filter successful..")
