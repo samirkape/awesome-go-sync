@@ -1,7 +1,7 @@
 package main
 
 import (
-	parser "github.com/samirkape/awesome-go-sync/parser/v2"
+	parser "github.com/samirkape/awesome-go-sync"
 )
 
 func main() {
