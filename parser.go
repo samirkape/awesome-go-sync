@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"golang.org/x/oauth2"
 )
 
 var PackageCounter int
@@ -143,6 +144,15 @@ func trimString(raw string) (name, url, description string) {
 	return name, url, info[1]
 }
 
+type MyRoundTripper struct {
+	r http.RoundTripper
+}
+
+func (mrt MyRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	r.Header.Add("Authorization", "Bearer: "+Config.AccessToken)
+	return mrt.r.RoundTrip(r)
+}
+
 func getRepoStars(name, rawUrl, info string, tmpLinks *[]Package, mu *sync.Mutex, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var repoMeta RepoDetails
@@ -150,21 +160,29 @@ func getRepoStars(name, rawUrl, info string, tmpLinks *[]Package, mu *sync.Mutex
 		return
 	}
 
+	ctx := context.Background()
+	client := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{
+		AccessToken: Config.AccessToken,
+		TokenType:   "Bearer",
+	}))
+
 	tmpFields := strings.Split(rawUrl, "/")
 	u, _ := url.Parse(STARS)
 	u.Path = path.Join(u.Path, tmpFields[len(tmpFields)-2])
 	u.Path = path.Join(u.Path, tmpFields[len(tmpFields)-1])
 	url := u.String()
-	resp, err := http.Get(url)
+	resp, err := client.Get(url)
 	if err != nil {
-		log.Printf("unable to get star count for %s: %v", url, err)
+		log.Printf("unable to get star count for %s: %v\n", url, err)
 		return
+	} else {
+		json.NewDecoder(resp.Body).Decode(&repoMeta)
+		log.Printf("star count for %s: %d\n", url, repoMeta.StargazersCount)
 	}
 
-	json.NewDecoder(resp.Body).Decode(&repoMeta)
 	LD := Package{
 		Name:  name,
-		URL:   url,
+		URL:   rawUrl,
 		Info:  info,
 		Stars: repoMeta.StargazersCount,
 	}
@@ -181,8 +199,6 @@ func SplitLinks(m map[string][]string) Categories {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	wg.Add(len(m))
-
 	categories := make(Categories, len(m))
 	i := 0
 
@@ -190,6 +206,7 @@ func SplitLinks(m map[string][]string) Categories {
 		var tmpLinks []Package
 		token := strings.IndexByte(key, ' ')
 		categories[i].Title = key[token+1:]
+		wg.Add(len(value))
 		for _, e := range value {
 			name, url, info := trimString(e)
 			go getRepoStars(name, url, info, &tmpLinks, &mu, &wg)

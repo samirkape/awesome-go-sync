@@ -152,3 +152,42 @@ func DBWrite(client *mongo.Client, categories Categories) {
 		PackagePreprocess(category.PackageDetails, title, client, DbName)
 	}
 }
+
+func findPackages(colName string) ([]Package, error) {
+	// packageList will contains packages that are
+	// requested by user by providing category number
+	var packageList []Package
+	var cur *mongo.Cursor
+	var findError error
+
+	// Get database name and client from config
+	client := GetDbClient()
+	DB := GetPackageDbName()
+
+	// Get collection handle
+	collection := client.Database(DB).Collection(colName)
+
+	// bson.D{} specifies 'all documents'
+	filter := bson.D{}
+
+	// Find  all documents in the "Collection"
+	cur, findError = collection.Find(context.TODO(), filter)
+
+	if findError != nil {
+		return nil, findError
+	}
+
+	defer cur.Close(context.TODO())
+
+	//Map result to slice
+	for cur.Next(context.TODO()) {
+		p := Package{}
+		err := cur.Decode(&p)
+		if err != nil {
+			return nil, err
+		} else {
+			packageList = append(packageList, p)
+		}
+	}
+	return packageList, nil
+}

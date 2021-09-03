@@ -36,6 +36,7 @@ func init() {
 		UserDBColName: "requestctr",
 		MongoURL:      os.Getenv("ATLAS_URI"),
 		SudoWrite:     os.Getenv("WRITE"),
+		AccessToken:   os.Getenv("GHTOKEN"),
 	}
 
 	MongoClient = GetDbClient()
@@ -54,6 +55,7 @@ type config struct {
 	UserDBOldCtr  string
 	MongoURL      string
 	SudoWrite     string
+	AccessToken   string
 }
 
 type Category struct {
