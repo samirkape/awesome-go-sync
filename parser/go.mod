@@ -1,4 +1,4 @@
-module github.com/samirkape/awesome-go-sync/parser/v2
+module github.com/samirkape/awesome-go-sync/parser
 
 go 1.16
 
