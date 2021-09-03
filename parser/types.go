@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	FILE = "./awesome.md"
-	URL  = "https://raw.githubusercontent.com/avelino/awesome-go/master/README.md"
+	FILE  = "./awesome.md"
+	URL   = "https://raw.githubusercontent.com/avelino/awesome-go/master/README.md"
+	STARS = "https://api.github.com/repos"
 )
 
 var (
@@ -62,8 +63,15 @@ type Category struct {
 }
 
 type Package struct {
-	Name string `bson:"name" json:"name"`
-	URL  string `bson:"url" json:"url"`
-	Info string `bson:"info" json:"info"`
+	Name  string `bson:"name" json:"name"`
+	URL   string `bson:"url" json:"url"`
+	Info  string `bson:"info" json:"info"`
+	Stars int
 	// ID   primitive.ObjectID `bson:"_id" json:"id,omitempty"`
+}
+
+type RepoDetails struct {
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	StargazersCount int    `json:"stargazers_count"`
 }

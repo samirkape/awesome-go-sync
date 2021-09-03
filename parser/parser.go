@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"reflect"
 	"regexp"
 	"strings"
@@ -115,17 +118,22 @@ func GetSlice(f io.Reader) (map[string][]string, int) {
 // name -- package name
 // url  -- package url
 // info  -- a short info about the package
-func TrimString(raw string) (string, string, string) {
+func trimString(raw string) (name, url, description string) {
 	sre := regexp.MustCompile(`\[(.*?)\]`)
 	rre := regexp.MustCompile(`\((.*?)\)`)
 	_name := sre.FindAllString(raw, -1)
 	_url := rre.FindAllString(raw, -1)
+	for _, u := range _url {
+		if strings.Contains(u, ".com") {
+			url = u
+		}
+	}
 	if _name == nil || _url == nil {
 		return "", "", ""
 	}
-	name := strings.Trim(_name[0], "[")
+	name = strings.Trim(_name[0], "[")
 	name = strings.Trim(name, "]")
-	url := strings.Trim(_url[0], "(")
+	url = strings.Trim(url, "(")
 	url = strings.Trim(url, ")")
 	info := strings.Split(raw, "- ")
 	if len(info) <= 1 {
@@ -133,6 +141,25 @@ func TrimString(raw string) (string, string, string) {
 	}
 	PackageCounter++
 	return name, url, info[1]
+}
+
+func getRepoStars(rawUrl string) (int, error) {
+	if rawUrl == "" {
+		return 0, nil
+	}
+	var repoMeta RepoDetails
+	tmpFields := strings.Split(rawUrl, "/")
+	u, _ := url.Parse(STARS)
+	u.Path = path.Join(u.Path, tmpFields[len(tmpFields)-2])
+	u.Path = path.Join(u.Path, tmpFields[len(tmpFields)-1])
+	url := u.String()
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Printf("unable to get star count: %v", err)
+		return -1, err
+	}
+	json.NewDecoder(resp.Body).Decode(&repoMeta)
+	return repoMeta.StargazersCount, nil
 }
 
 // Split is a driver function for splitting the Line from []Package
@@ -146,8 +173,9 @@ func SplitLinks(m map[string][]string) Categories {
 		token := strings.IndexByte(key, ' ')
 		categories[i].Title = key[token+1:]
 		for _, e := range value {
-			name, url, info := TrimString(e)
-			LD := Package{Name: name, URL: url, Info: info}
+			name, url, info := trimString(e)
+			stars, _ := getRepoStars(url)
+			LD := Package{Name: name, URL: url, Info: info, Stars: stars}
 			if reflect.ValueOf(LD).IsZero() {
 				continue
 			}
