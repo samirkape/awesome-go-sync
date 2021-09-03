@@ -45,7 +45,7 @@ func SyncReq(newCount int) (bool, int) {
 	var result olderCount
 	collection := MongoClient.Database(Config.UserDBName).Collection(Config.UserDBOldCtr)
 	collection.FindOne(context.TODO(), bson.D{}).Decode(&result)
-	if newCount > result.Old {
+	if Config.SudoWrite == "1" || (newCount > result.Old) {
 		update := bson.D{{Key: "old", Value: newCount}}
 		_, err := collection.ReplaceOne(context.TODO(), bson.D{}, update)
 		if err != nil {

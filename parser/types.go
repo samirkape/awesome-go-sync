@@ -35,6 +35,7 @@ func init() {
 		UserDBOldCtr:  "pkgcount",
 		UserDBColName: "requestctr",
 		MongoURL:      os.Getenv("ATLAS_URI"),
+		SudoWrite:     os.Getenv("WRITE"),
 	}
 
 	MongoClient = GetDbClient()
@@ -52,6 +53,7 @@ type config struct {
 	UserDBColName string
 	UserDBOldCtr  string
 	MongoURL      string
+	SudoWrite     string
 }
 
 type Category struct {
