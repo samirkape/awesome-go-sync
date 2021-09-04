@@ -68,6 +68,7 @@ func Sync() {
 		DBWrite(MongoClient, final)
 		log.Printf("sync successful.. added %d new packages\n", diff)
 	} else {
+		DBUpdate(MongoClient, final)
 		log.Println("no new packages to sync")
 	}
 }

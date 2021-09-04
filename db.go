@@ -23,8 +23,36 @@ func WriteData(client *mongo.Client, DbName string, CollectionName string, data 
 	collection := client.Database(DbName).Collection(CollectionName)
 	//Perform InsertMany operation & validate against the error.
 	_, err := collection.InsertMany(context.TODO(), data)
+
 	if err != nil {
 		log.Fatal(err)
+	}
+	return collection
+}
+
+// WriteData uses mongodb's  InsertMany()  function to insert documents to a
+// dbName database and CollectionName collection
+func UpdateData(client *mongo.Client, DbName string, CollectionName string, data []interface{}) *mongo.Collection {
+	upsert := true
+	after := options.After
+
+	collection := client.Database(DbName).Collection(CollectionName)
+
+	for _, p := range data {
+		pkg := p.(Package)
+		filter := bson.M{"name": pkg.Name}
+		update := bson.M{
+			"$set": bson.M{"stars": pkg.Stars},
+		}
+		opt := options.FindOneAndUpdateOptions{
+			ReturnDocument: &after,
+			Upsert:         &upsert,
+		}
+		// 8) Find one result and update it
+		result := collection.FindOneAndUpdate(context.Background(), filter, update, &opt)
+		if result.Err() != nil {
+			log.Printf("repo star update failed: %v\n", result.Err())
+		}
 	}
 	return collection
 }
@@ -133,13 +161,13 @@ func GetDbClient() *mongo.Client {
 	return client
 }
 
-func PackagePreprocess(final []Package, title string, client *mongo.Client, DbName string) {
+func PackagePreprocess(final []Package, title string, client *mongo.Client, DbName string) []interface{} {
 	var data []interface{}
 	for i := 0; i < len(final); i++ {
 		e := final[i]
 		data = append(data, e)
 	}
-	WriteData(client, DbName, title, data)
+	return data
 }
 
 func DBWrite(client *mongo.Client, categories Categories) {
@@ -149,7 +177,20 @@ func DBWrite(client *mongo.Client, categories Categories) {
 		if title == "" || category.PackageDetails == nil {
 			continue
 		}
-		PackagePreprocess(category.PackageDetails, title, client, DbName)
+		data := PackagePreprocess(category.PackageDetails, title, client, DbName)
+		WriteData(client, DbName, title, data)
+	}
+}
+
+func DBUpdate(client *mongo.Client, categories Categories) {
+	for i, category := range categories {
+		title := category.Title
+		fmt.Println(i)
+		if title == "" || category.PackageDetails == nil {
+			continue
+		}
+		data := PackagePreprocess(category.PackageDetails, title, client, DbName)
+		UpdateData(client, DbName, title, data)
 	}
 }
 
