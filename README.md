@@ -1,6 +1,6 @@
 # awesome-go-sync
 
-To make sure [github.com/samirkape/awesome-go-bot](awesome-go-bot) always have the updated information such as new packages and star counts, 
+To make sure (awesome-go-bot)[github.com/samirkape/awesome-go-bot] always have the updated information such as new packages and star counts, 
 
 this daemon service runs itself once every day.
 
