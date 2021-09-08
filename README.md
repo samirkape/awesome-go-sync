@@ -6,8 +6,8 @@ this daemon service runs itself once every day.
 
 
 ### Stack
-
-1. MongoDB
-2. Github API
-3. AWS Lambda
-4. AWS CloudWatch (for daily trigger)
+* Go 1.16
+* MongoDB
+* Github API
+* AWS Lambda
+* AWS CloudWatch (for daily trigger)
