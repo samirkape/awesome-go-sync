@@ -1,6 +1,6 @@
 # awesome-go-sync
 
-To make sure [awesome-go-bot](github.com/samirkape/awesome-go-bot) always have the updated information such as new packages and star counts, 
+To make sure [awesome-go-bot](github.com/samirkape/awesome-go-bot) has the updated information such as new packages and star counts, 
 
 this daemon service runs itself once every day.
 
@@ -10,4 +10,4 @@ this daemon service runs itself once every day.
 * MongoDB
 * Github API
 * AWS Lambda
-* AWS CloudWatch (for daily trigger)
+* AWS CloudWatch
