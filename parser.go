@@ -23,7 +23,7 @@ import (
 
 var PackageCounter int
 
-func downloadMd() io.Reader {
+func loadMarkdown() io.Reader {
 	b, err := http.Get(URL)
 	if err != nil {
 		log.Printf("unable to get md file from github: %v", err)
@@ -60,16 +60,16 @@ func SyncReq(newCount int) (bool, int) {
 
 func Sync() {
 	defer MongoClient.Disconnect(context.TODO())
-	buf := downloadMd()
+	buf := loadMarkdown()
 	m, count := GetSlice(buf)
 	final := SplitLinks(m)
 	check, diff := SyncReq(count)
 	if check {
 		DBWrite(MongoClient, final)
-		log.Printf("sync successful.. added %d new packages\n", diff)
+		log.Printf("sync successful: added %d new packages\n", diff)
 	} else {
 		DBUpdate(MongoClient, final)
-		log.Println("no new packages to sync")
+		log.Println("no new packages to sync: updated stars count")
 	}
 }
 

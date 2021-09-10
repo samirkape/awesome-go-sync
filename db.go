@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -33,26 +32,18 @@ func WriteData(client *mongo.Client, DbName string, CollectionName string, data 
 // WriteData uses mongodb's  InsertMany()  function to insert documents to a
 // dbName database and CollectionName collection
 func UpdateData(client *mongo.Client, DbName string, CollectionName string, data []interface{}) *mongo.Collection {
-	upsert := true
-	after := options.After
-
 	collection := client.Database(DbName).Collection(CollectionName)
-
 	for _, p := range data {
 		pkg := p.(Package)
 		filter := bson.M{"name": pkg.Name}
 		update := bson.M{
-			"$set": bson.M{"stars": pkg.Stars},
+			"$max": bson.M{"stars": pkg.Stars},
 		}
-		opt := options.FindOneAndUpdateOptions{
-			ReturnDocument: &after,
-			Upsert:         &upsert,
-		}
-		// 8) Find one result and update it
-		result := collection.FindOneAndUpdate(context.Background(), filter, update, &opt)
+		result := collection.FindOneAndUpdate(context.Background(), filter, update)
 		if result.Err() != nil {
 			log.Printf("repo star update failed: %v\n", result.Err())
 		}
+		log.Printf("updating star count for: %s", pkg.Name)
 	}
 	return collection
 }
@@ -117,7 +108,7 @@ func FindDeleteDoc(client *mongo.Client, DB string, Collection string) error {
 			return err
 		}
 		if _, ok := namemap[t.URL]; ok {
-			DeleteOne(client, DB, Collection, primitive.NewObjectID()) // TODO
+			DeleteOne(client, DB, Collection, t.Name) // TODO
 		} else {
 			namemap[t.URL] = estruct
 		}
@@ -125,7 +116,7 @@ func FindDeleteDoc(client *mongo.Client, DB string, Collection string) error {
 	return nil
 }
 
-func DeleteOne(client *mongo.Client, DB string, Collection string, ID primitive.ObjectID) error {
+func DeleteOne(client *mongo.Client, DB string, Collection string, name string) error {
 	//Define filter query for fetching specific document from collection
 
 	// id, err := primitive.ObjectIDFromHex("_id")
@@ -133,7 +124,7 @@ func DeleteOne(client *mongo.Client, DB string, Collection string, ID primitive.
 	// 	return err
 	// }
 
-	filter := bson.M{"_id": ID}
+	filter := bson.M{"name": name}
 
 	//Create a handle to the respective collection in the database.
 	collection := client.Database(DB).Collection(Collection)
