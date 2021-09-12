@@ -64,13 +64,12 @@ func Sync() {
 	m, count := GetSlice(buf)
 	final := SplitLinks(m)
 	check, diff := SyncReq(count)
+	// DBWrite(MongoClient, final)
 	if check {
-		DBWrite(MongoClient, final)
-		log.Printf("sync successful: added %d new packages\n", diff)
-	} else {
-		DBUpdate(MongoClient, final)
-		log.Println("no new packages to sync: updated stars count")
+		log.Printf("adding %d new packages\n", diff)
 	}
+	DBUpdate(MongoClient, final)
+	log.Println("no new packages to sync: updated stars count")
 }
 
 // Open file specified in  filename and return its handle

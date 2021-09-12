@@ -32,6 +32,8 @@ func WriteData(client *mongo.Client, DbName string, CollectionName string, data 
 // WriteData uses mongodb's  InsertMany()  function to insert documents to a
 // dbName database and CollectionName collection
 func UpdateData(client *mongo.Client, DbName string, CollectionName string, data []interface{}) *mongo.Collection {
+	upsert := true
+	after := options.After
 	collection := client.Database(DbName).Collection(CollectionName)
 	for _, p := range data {
 		pkg := p.(Package)
@@ -39,7 +41,12 @@ func UpdateData(client *mongo.Client, DbName string, CollectionName string, data
 		update := bson.M{
 			"$max": bson.M{"stars": pkg.Stars},
 		}
-		result := collection.FindOneAndUpdate(context.Background(), filter, update)
+		// Create an instance of an options and set the desired options.
+		opt := options.FindOneAndUpdateOptions{
+			ReturnDocument: &after,
+			Upsert:         &upsert,
+		}
+		result := collection.FindOneAndUpdate(context.Background(), filter, update, &opt)
 		if result.Err() != nil {
 			log.Printf("repo star update failed: %v\n", result.Err())
 		}
