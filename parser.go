@@ -107,7 +107,7 @@ func GetSlice(f io.Reader) (map[string][]string, int) {
 			} else {
 				title = line
 			}
-		} else if strings.HasPrefix(line, "*") {
+		} else if strings.HasPrefix(line, "-") {
 			links = append(links, line)
 		}
 	}
