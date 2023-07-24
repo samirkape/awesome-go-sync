@@ -176,7 +176,7 @@ func DBWrite(client *mongo.Client, categories Categories) {
 	}
 }
 
-func DBUpdate(client *mongo.Client, categories Categories) {
+func writePackages(client *mongo.Client, categories Categories) {
 	for i, category := range categories {
 		title := category.Title
 		fmt.Println(i)
