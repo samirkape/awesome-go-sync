@@ -29,28 +29,24 @@ func WriteData(client *mongo.Client, DbName string, CollectionName string, data 
 	return collection
 }
 
-// WriteData uses mongodb's  InsertMany()  function to insert documents to a
-// dbName database and CollectionName collection
 func UpdateData(client *mongo.Client, DbName string, CollectionName string, data []interface{}) *mongo.Collection {
-	upsert := true
-	after := options.After
 	collection := client.Database(DbName).Collection(CollectionName)
 	for _, p := range data {
 		pkg := p.(Package)
 		filter := bson.M{"name": pkg.Name}
-		update := bson.M{
-			"$max": bson.M{"stars": pkg.Stars},
-		}
+		update := bson.M{"$max": bson.M{"stars": pkg.Stars}}
+
 		// Create an instance of an options and set the desired options.
-		opt := options.FindOneAndUpdateOptions{
-			ReturnDocument: &after,
-			Upsert:         &upsert,
+		opt := options.Update().SetUpsert(true)
+
+		result, err := collection.UpdateOne(context.Background(), filter, update, opt)
+		if err != nil {
+			log.Printf("repo star update failed: %v\n", err)
+		} else if result.UpsertedCount > 0 {
+			log.Printf("creating new entry for: %s", pkg.Name)
+		} else {
+			log.Printf("updating star count for: %s", pkg.Name)
 		}
-		result := collection.FindOneAndUpdate(context.Background(), filter, update, &opt)
-		if result.Err() != nil {
-			log.Printf("repo star update failed: %v\n", result.Err())
-		}
-		log.Printf("updating star count for: %s", pkg.Name)
 	}
 	return collection
 }

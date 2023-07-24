@@ -61,6 +61,7 @@ func SyncReq(newCount int) (bool, int) {
 func Sync() {
 	defer MongoClient.Disconnect(context.TODO())
 	buf := loadMarkdown()
+	//file := FileHandle(FILE)
 	m, count := GetSlice(buf)
 	final := SplitLinks(m)
 	check, diff := SyncReq(count)
@@ -73,8 +74,8 @@ func Sync() {
 }
 
 // Open file specified in  filename and return its handle
-func FileHandle(filename string) *os.File {
-	awsm, err := os.Open(filename)
+func FileHandle(filename string) []byte {
+	awsm, err := os.ReadFile(filename)
 	if err != nil {
 		fmt.Println("cannot read file")
 		os.Exit(-1)
@@ -91,8 +92,12 @@ func GetSlice(f io.Reader) (map[string][]string, int) {
 	var title string
 	counter := 0
 	for {
-		line, err := rd.ReadString('\n')
-		if strings.HasPrefix(line, "#") || err == io.EOF {
+		line, _, err := rd.ReadLine()
+		if err == io.EOF {
+			return m, counter
+		}
+		lineString := string(line)
+		if strings.HasPrefix(lineString, "#") {
 			if links != nil {
 				if len(links) < 3 {
 					continue
@@ -100,48 +105,53 @@ func GetSlice(f io.Reader) (map[string][]string, int) {
 				counter += len(links)
 				m[title] = links
 				links = nil
-				title = line
+				title = lineString
 				if err == io.EOF {
 					break
 				}
 			} else {
-				title = line
+				title = lineString
 			}
-		} else if strings.HasPrefix(line, "-") {
-			links = append(links, line)
+		} else if isPackage(lineString) {
+			links = append(links, lineString)
 		}
 	}
 	log.Println("parsing successful..")
 	return m, counter
 }
 
+func isPackage(inputString string) bool {
+	regexPattern := `^\s*-\s\[[a-zA-Z0-9\-_]+\]\(https?:\/\/[^\s)]+\)`
+	compiledRegex, err := regexp.Compile(regexPattern)
+	if err != nil {
+		fmt.Println("Error compiling regex:", err)
+		return false
+	}
+	matched := compiledRegex.MatchString(inputString)
+	if matched {
+		return true
+	}
+	return false
+}
+
 // TrimString is a post-processing function that divides an input strings into,
 // name -- package name
 // url  -- package url
 // info  -- a short info about the package
-func trimString(raw string) (name, url, description string) {
-	sre := regexp.MustCompile(`\[(.*?)\]`)
-	rre := regexp.MustCompile(`\((.*?)\)`)
-	_name := sre.FindAllString(raw, -1)
-	_url := rre.FindAllString(raw, -1)
-	for _, u := range _url {
-		if strings.Contains(u, ".com") {
-			url = u
-		}
+func trimString(markdown string) (name, url, description string) {
+	// Define a regular expression pattern to match the markdown string format
+	regex := regexp.MustCompile(`- \[([^]]+)\]\(([^)]+)\) - (.+)`)
+
+	// Find the submatches in the markdown string
+	matches := regex.FindStringSubmatch(markdown)
+
+	if len(matches) == 4 {
+		name = strings.TrimSpace(matches[1])
+		url = strings.TrimSpace(matches[2])
+		description = strings.TrimSpace(matches[3])
 	}
-	if _name == nil || _url == nil {
-		return "", "", ""
-	}
-	name = strings.Trim(_name[0], "[")
-	name = strings.Trim(name, "]")
-	url = strings.Trim(url, "(")
-	url = strings.Trim(url, ")")
-	info := strings.Split(raw, "- ")
-	if len(info) <= 1 {
-		return name, url, ""
-	}
-	PackageCounter++
-	return name, url, info[1]
+
+	return name, url, description
 }
 
 type MyRoundTripper struct {
@@ -208,8 +218,8 @@ func SplitLinks(m map[string][]string) Categories {
 		categories[i].Title = key[token+1:]
 		wg.Add(len(value))
 		for _, e := range value {
-			name, url, info := trimString(e)
-			go getRepoStars(name, url, info, &tmpLinks, &mu, &wg)
+			name, link, info := trimString(e)
+			go getRepoStars(name, link, info, &tmpLinks, &mu, &wg)
 		}
 		wg.Wait()
 		categories[i].PackageDetails = append(categories[i].PackageDetails, tmpLinks...)
