@@ -22,8 +22,6 @@ import (
 type packageDetails struct {
 	name, rawURL, info string
 	tmpLinks           *[]Package
-	mu                 *sync.Mutex
-	wg                 *sync.WaitGroup
 }
 
 // loadMarkdown fetches the markdown file from a given URL and returns it as an io.Reader.
@@ -100,8 +98,8 @@ func isPackage(inputString string) bool {
 	return matched
 }
 
-// trimString extracts the package name, URL, and description from a given markdown string.
-func trimString(markdown string) (name, url, description string) {
+// getPackageDetailsFromString extracts the package name, URL, and description from a given markdown string.
+func getPackageDetailsFromString(markdown string) (name, url, description string) {
 	// Define a regular expression pattern to match the markdown string format
 	regex := regexp.MustCompile(`- \[([^]]+)\]\(([^)]+)\) - (.+)`)
 
@@ -118,8 +116,8 @@ func trimString(markdown string) (name, url, description string) {
 }
 
 // getRepoStars fetches the star count for a given repository and updates the package information.
-func getRepoStars(details packageDetails) {
-	defer details.wg.Done()
+func getRepoStars(details packageDetails, wg *sync.WaitGroup, mu *sync.Mutex) {
+	defer wg.Done()
 
 	if details.rawURL == "" {
 		return
@@ -160,36 +158,34 @@ func getRepoStars(details packageDetails) {
 		Stars: repoMeta.StargazersCount,
 	}
 
-	details.mu.Lock()
-	defer details.mu.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 	*details.tmpLinks = append(*details.tmpLinks, LD)
 }
 
 // CategorizePackages splits and categorizes the packages based on their titles.
-func CategorizePackages(m map[string][]string) Categories {
-	var mu sync.Mutex
+func CategorizePackages(packageMap map[string][]string) Categories {
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var i int
 
-	categories := make(Categories, len(m))
-	i := 0
+	categories := make(Categories, len(packageMap))
 
-	for key, value := range m {
+	for category, packages := range packageMap {
 		var tmpLinks []Package
-		token := strings.IndexByte(key, ' ')
-		categories[i].Title = key[token+1:]
-		wg.Add(len(value))
+		token := strings.IndexByte(category, ' ')
+		categories[i].Title = category[token+1:]
 
-		for _, e := range value {
-			name, link, info := trimString(e)
+		for _, e := range packages {
+			wg.Add(1)
+			name, link, info := getPackageDetailsFromString(e)
 			details := packageDetails{
 				name:     name,
 				rawURL:   link,
 				info:     info,
 				tmpLinks: &tmpLinks,
-				mu:       &mu,
-				wg:       &wg,
 			}
-			go getRepoStars(details)
+			go getRepoStars(details, &wg, &mu)
 		}
 
 		wg.Wait()
