@@ -9,7 +9,7 @@ func TestTrimString(t *testing.T) {
 	nwant := "hipchat (xmpp)"
 
 	str := "* [hipchat (xmpp)](https://github.com/daneharrigan/hipchat) - A golang package to communicate with HipChat over XMPP.\n"
-	name, url, _ := TrimString(str)
+	name, url, _ := getPackageDetailsFromString(str)
 
 	t.Run("TrimString: name", func(t *testing.T) {
 		if nwant != name {

@@ -7,34 +7,35 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"regexp"
 	"strings"
 	"sync"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"golang.org/x/oauth2"
 )
 
-var PackageCounter int
+// packageDetails holds the information required for updating package stars.
+type packageDetails struct {
+	name, rawURL, info string
+	tmpLinks           *[]Package
+}
 
+// loadMarkdown fetches the markdown file from a given URL and returns it as an io.Reader.
 func loadMarkdown() io.Reader {
-	b, err := http.Get(URL)
+	response, err := http.Get(URL)
 	if err != nil {
 		log.Printf("unable to get md file from github: %v", err)
 		return nil
 	}
-	defer b.Body.Close()
+	defer response.Body.Close()
 
-	buf, err := ioutil.ReadAll(b.Body)
-
+	buf, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Printf("unable to get md file from github %v", err)
+		log.Printf("unable to read md file from github: %v", err)
 		return nil
 	}
 
@@ -42,121 +43,83 @@ func loadMarkdown() io.Reader {
 	return bytes.NewReader(buf)
 }
 
-func SyncReq(newCount int) (bool, int) {
-	var result olderCount
-	collection := MongoClient.Database(Config.UserDBName).Collection(Config.UserDBOldCtr)
-	collection.FindOne(context.TODO(), bson.D{}).Decode(&result)
-	if Config.SudoWrite == "1" || (newCount > result.Old) {
-		update := bson.D{{Key: "old", Value: newCount}}
-		_, err := collection.ReplaceOne(context.TODO(), bson.D{}, update)
-		if err != nil {
-			log.Printf("enable to update old pkg count: %v", err)
-			return false, newCount - result.Old
-		}
-		return true, newCount - result.Old
-	}
-	return false, newCount - result.Old
-}
-
+// Sync fetches the markdown, parses it, and updates the package information in the database.
 func Sync() {
-	defer MongoClient.Disconnect(context.TODO())
-	buf := loadMarkdown()
-	m, count := GetSlice(buf)
-	final := SplitLinks(m)
-	check, diff := SyncReq(count)
-	// DBWrite(MongoClient, final)
-	if check {
-		log.Printf("adding %d new packages\n", diff)
-	}
-	DBUpdate(MongoClient, final)
+	defer MongoClient.Disconnect(context.Background())
+	markdownReader := loadMarkdown()
+	packages, _ := ParseMarkdown(markdownReader)
+	categorizedPackages := CategorizePackages(packages)
+	writePackages(MongoClient, categorizedPackages)
 	log.Println("no new packages to sync: updated stars count")
 }
 
-// Open file specified in  filename and return its handle
-func FileHandle(filename string) *os.File {
-	awsm, err := os.Open(filename)
-	if err != nil {
-		fmt.Println("cannot read file")
-		os.Exit(-1)
-	}
-	return awsm
-}
+// ParseMarkdown parses the markdown file line by line and stores raw links in their respective map keys.
+func ParseMarkdown(reader io.Reader) (map[string][]string, int) {
+	bufferedReader := bufio.NewReader(reader)
+	packageMap := make(map[string][]string)
 
-// GetSlice is a driver function that gets filehandler as an input,
-// reads file line-by-line and store slice of raw links into their particular map key
-func GetSlice(f io.Reader) (map[string][]string, int) {
-	rd := bufio.NewReader(f)
-	m := make(map[string][]string)
+	var counter int
 	var links []string
 	var title string
-	counter := 0
+
 	for {
-		line, err := rd.ReadString('\n')
-		if strings.HasPrefix(line, "#") || err == io.EOF {
+		line, _, err := bufferedReader.ReadLine()
+		if err == io.EOF {
+			return packageMap, counter
+		}
+		lineString := string(line)
+		if strings.HasPrefix(lineString, "#") {
 			if links != nil {
 				if len(links) < 3 {
 					continue
 				}
 				counter += len(links)
-				m[title] = links
+				packageMap[title] = links
 				links = nil
-				title = line
-				if err == io.EOF {
-					break
-				}
+				title = lineString
 			} else {
-				title = line
+				title = lineString
 			}
-		} else if strings.HasPrefix(line, "-") {
-			links = append(links, line)
+		} else if isPackage(lineString) {
+			links = append(links, lineString)
 		}
 	}
-	log.Println("parsing successful..")
-	return m, counter
 }
 
-// TrimString is a post-processing function that divides an input strings into,
-// name -- package name
-// url  -- package url
-// info  -- a short info about the package
-func trimString(raw string) (name, url, description string) {
-	sre := regexp.MustCompile(`\[(.*?)\]`)
-	rre := regexp.MustCompile(`\((.*?)\)`)
-	_name := sre.FindAllString(raw, -1)
-	_url := rre.FindAllString(raw, -1)
-	for _, u := range _url {
-		if strings.Contains(u, ".com") {
-			url = u
-		}
+// isPackage checks if the input string is a valid package link.
+func isPackage(inputString string) bool {
+	regexPattern := `^\s*-\s\[[a-zA-Z0-9\-_]+\]\(https?:\/\/[^\s)]+\)`
+	compiledRegex, err := regexp.Compile(regexPattern)
+	if err != nil {
+		fmt.Println("Error compiling regex:", err)
+		return false
 	}
-	if _name == nil || _url == nil {
-		return "", "", ""
+	matched := compiledRegex.MatchString(inputString)
+	return matched
+}
+
+// getPackageDetailsFromString extracts the package name, URL, and description from a given markdown string.
+func getPackageDetailsFromString(markdown string) (name, url, description string) {
+	// Define a regular expression pattern to match the markdown string format
+	regex := regexp.MustCompile(`- \[([^]]+)\]\(([^)]+)\) - (.+)`)
+
+	// Find the submatches in the markdown string
+	matches := regex.FindStringSubmatch(markdown)
+
+	if len(matches) == 4 {
+		name = strings.TrimSpace(matches[1])
+		url = strings.TrimSpace(matches[2])
+		description = strings.TrimSpace(matches[3])
 	}
-	name = strings.Trim(_name[0], "[")
-	name = strings.Trim(name, "]")
-	url = strings.Trim(url, "(")
-	url = strings.Trim(url, ")")
-	info := strings.Split(raw, "- ")
-	if len(info) <= 1 {
-		return name, url, ""
-	}
-	PackageCounter++
-	return name, url, info[1]
+
+	return name, url, description
 }
 
-type MyRoundTripper struct {
-	r http.RoundTripper
-}
-
-func (mrt MyRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
-	r.Header.Add("Authorization", "Bearer: "+Config.AccessToken)
-	return mrt.r.RoundTrip(r)
-}
-
-func getRepoStars(name, rawUrl, info string, tmpLinks *[]Package, mu *sync.Mutex, wg *sync.WaitGroup) {
+// getRepoStars fetches the star count for a given repository and updates the package information.
+func getRepoStars(details packageDetails, wg *sync.WaitGroup, mu *sync.Mutex) {
 	defer wg.Done()
-	var repoMeta RepoDetails
-	if rawUrl == "" {
+
+	if details.rawURL == "" {
 		return
 	}
 
@@ -166,55 +129,70 @@ func getRepoStars(name, rawUrl, info string, tmpLinks *[]Package, mu *sync.Mutex
 		TokenType:   "Bearer",
 	}))
 
-	tmpFields := strings.Split(rawUrl, "/")
+	tmpFields := strings.Split(details.rawURL, "/")
 	u, _ := url.Parse(STARS)
 	u.Path = path.Join(u.Path, tmpFields[len(tmpFields)-2])
 	u.Path = path.Join(u.Path, tmpFields[len(tmpFields)-1])
 	url := u.String()
+
 	resp, err := client.Get(url)
 	if err != nil {
 		log.Printf("unable to get star count for %s: %v\n", url, err)
 		return
-	} else {
-		json.NewDecoder(resp.Body).Decode(&repoMeta)
-		log.Printf("star count for %s: %d\n", url, repoMeta.StargazersCount)
+	}
+	defer resp.Body.Close()
+
+	var repoMeta RepoDetails
+	err = json.NewDecoder(resp.Body).Decode(&repoMeta)
+	if err != nil {
+		log.Printf("failed to decode star count response for %s: %v", url, err)
+		return
 	}
 
+	log.Printf("star count for %s: %d\n", url, repoMeta.StargazersCount)
+
 	LD := Package{
-		Name:  name,
-		URL:   rawUrl,
-		Info:  info,
+		Name:  details.name,
+		URL:   details.rawURL,
+		Info:  details.info,
 		Stars: repoMeta.StargazersCount,
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	*tmpLinks = append(*tmpLinks, LD)
+	*details.tmpLinks = append(*details.tmpLinks, LD)
 }
 
-// Split is a driver function for splitting the Line from []Package
-// it calls TrimString for splitting and handles a creation and appending of
-// a result into a LinkDetails struct.
-func SplitLinks(m map[string][]string) Categories {
-	var mu sync.Mutex
+// CategorizePackages splits and categorizes the packages based on their titles.
+func CategorizePackages(packageMap map[string][]string) Categories {
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var i int
 
-	categories := make(Categories, len(m))
-	i := 0
+	categories := make(Categories, len(packageMap))
 
-	for key, value := range m {
+	for category, packages := range packageMap {
 		var tmpLinks []Package
-		token := strings.IndexByte(key, ' ')
-		categories[i].Title = key[token+1:]
-		wg.Add(len(value))
-		for _, e := range value {
-			name, url, info := trimString(e)
-			go getRepoStars(name, url, info, &tmpLinks, &mu, &wg)
+		token := strings.IndexByte(category, ' ')
+		categories[i].Title = category[token+1:]
+
+		for _, e := range packages {
+			wg.Add(1)
+			name, link, info := getPackageDetailsFromString(e)
+			details := packageDetails{
+				name:     name,
+				rawURL:   link,
+				info:     info,
+				tmpLinks: &tmpLinks,
+			}
+			go getRepoStars(details, &wg, &mu)
 		}
+
 		wg.Wait()
 		categories[i].PackageDetails = append(categories[i].PackageDetails, tmpLinks...)
 		i++
 	}
+
 	log.Println("package filter successful..")
 	return categories
 }
