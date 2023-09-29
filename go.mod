@@ -3,6 +3,7 @@ module github.com/samirkape/awesome-go-sync
 go 1.16
 
 require (
+	github.com/aws/aws-lambda-go v1.41.0 // indirect
 	github.com/joho/godotenv v1.3.0
 	github.com/stretchr/testify v1.7.2 // indirect
 	go.mongodb.org/mongo-driver v1.7.1

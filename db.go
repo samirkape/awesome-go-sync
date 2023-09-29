@@ -34,7 +34,7 @@ func UpdateData(client *mongo.Client, DbName string, CollectionName string, data
 	for _, p := range data {
 		pkg := p.(Package)
 		filter := bson.M{"name": pkg.Name}
-		update := bson.M{"$max": bson.M{"stars": pkg.Stars}}
+		update := bson.M{"$set": pkg}
 
 		// Create an instance of an options and set the desired options.
 		opt := options.Update().SetUpsert(true)

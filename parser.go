@@ -140,7 +140,12 @@ func getRepoStars(details packageDetails, wg *sync.WaitGroup, mu *sync.Mutex) {
 		log.Printf("unable to get star count for %s: %v\n", url, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			log.Printf("failed to close response body for %s: %v\n", url, err)
+		}
+	}(resp.Body)
 
 	var repoMeta RepoDetails
 	err = json.NewDecoder(resp.Body).Decode(&repoMeta)
