@@ -39,7 +39,7 @@ func init() {
 		AccessToken:   os.Getenv("GHTOKEN"),
 	}
 
-	MongoClient = GetDbClient()
+	MongoClient = getClient()
 }
 
 type Categories []Category

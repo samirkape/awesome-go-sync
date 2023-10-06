@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go.mongodb.org/mongo-driver/mongo"
 	"io"
 	"log"
 	"net/http"
@@ -14,14 +15,17 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/oauth2"
 )
 
 // packageDetails holds the information required for updating package stars.
 type packageDetails struct {
-	name, rawURL, info string
-	tmpLinks           *[]Package
+	name     string
+	rawURL   string
+	info     string
+	tmpLinks *[]Package
 }
 
 // loadMarkdown fetches the markdown file from a given URL and returns it as an io.Reader.
@@ -45,16 +49,21 @@ func loadMarkdown() io.Reader {
 
 // Sync fetches the markdown, parses it, and updates the package information in the database.
 func Sync() {
-	defer MongoClient.Disconnect(context.Background())
+	defer func(MongoClient *mongo.Client, ctx context.Context) {
+		err := MongoClient.Disconnect(ctx)
+		if err != nil {
+
+		}
+	}(MongoClient, context.Background())
 	markdownReader := loadMarkdown()
-	packages, _ := ParseMarkdown(markdownReader)
-	categorizedPackages := CategorizePackages(packages)
+	packages, _ := parseMarkdown(markdownReader)
+	categorizedPackages := categorizePackages(packages)
 	writePackages(MongoClient, categorizedPackages)
 	log.Println("no new packages to sync: updated stars count")
 }
 
-// ParseMarkdown parses the markdown file line by line and stores raw links in their respective map keys.
-func ParseMarkdown(reader io.Reader) (map[string][]string, int) {
+// parseMarkdown parses the markdown file line by line and stores raw links in their respective map keys.
+func parseMarkdown(reader io.Reader) (map[string][]string, int) {
 	bufferedReader := bufio.NewReader(reader)
 	packageMap := make(map[string][]string)
 
@@ -133,28 +142,32 @@ func getRepoStars(details packageDetails, wg *sync.WaitGroup, mu *sync.Mutex) {
 	u, _ := url.Parse(STARS)
 	u.Path = path.Join(u.Path, tmpFields[len(tmpFields)-2])
 	u.Path = path.Join(u.Path, tmpFields[len(tmpFields)-1])
-	url := u.String()
+	packageUrl := u.String()
 
-	resp, err := client.Get(url)
+	resp, err := client.Get(packageUrl)
 	if err != nil {
-		log.Printf("unable to get star count for %s: %v\n", url, err)
+		log.Printf("unable to get star count for %s: %v\n", packageUrl, err)
+		return
+	}
+	if resp != nil && resp.StatusCode != http.StatusOK {
+		log.Printf("unable to get star count for %s: %v\n", packageUrl, resp.Status)
 		return
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-			log.Printf("failed to close response body for %s: %v\n", url, err)
+			log.Printf("failed to close response body for %s: %v\n", packageUrl, err)
 		}
 	}(resp.Body)
 
 	var repoMeta RepoDetails
 	err = json.NewDecoder(resp.Body).Decode(&repoMeta)
 	if err != nil {
-		log.Printf("failed to decode star count response for %s: %v", url, err)
+		log.Printf("failed to decode star count response for %s: %v", packageUrl, err)
 		return
 	}
 
-	log.Printf("star count for %s: %d\n", url, repoMeta.StargazersCount)
+	log.Printf("star count for %s: %d\n", packageUrl, repoMeta.StargazersCount)
 
 	LD := Package{
 		Name:  details.name,
@@ -168,8 +181,8 @@ func getRepoStars(details packageDetails, wg *sync.WaitGroup, mu *sync.Mutex) {
 	*details.tmpLinks = append(*details.tmpLinks, LD)
 }
 
-// CategorizePackages splits and categorizes the packages based on their titles.
-func CategorizePackages(packageMap map[string][]string) Categories {
+// categorizePackages splits and categorizes the packages based on their titles.
+func categorizePackages(packageMap map[string][]string) Categories {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var i int
@@ -191,6 +204,7 @@ func CategorizePackages(packageMap map[string][]string) Categories {
 				tmpLinks: &tmpLinks,
 			}
 			go getRepoStars(details, &wg, &mu)
+			time.Sleep(100 * time.Millisecond)
 		}
 
 		wg.Wait()

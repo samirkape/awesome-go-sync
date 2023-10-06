@@ -1,5 +1,3 @@
-// mparser-db is responsible for handling database related operation
-// which may include connect, write, query
 package parser
 
 import (
@@ -15,25 +13,10 @@ import (
 
 const DbName = "packagedb"
 
-// WriteData uses mongodb's  InsertMany()  function to insert documents to a
-// dbName database and CollectionName collection
-func WriteData(client *mongo.Client, DbName string, CollectionName string, data []interface{}) *mongo.Collection {
-	//Create a handle to the respective collection in the database.
+func updateCollection(client *mongo.Client, DbName string, CollectionName string, data interface{}) *mongo.Collection {
 	collection := client.Database(DbName).Collection(CollectionName)
-	//Perform InsertMany operation & validate against the error.
-	_, err := collection.InsertMany(context.TODO(), data)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-	return collection
-}
-
-func UpdateData(client *mongo.Client, DbName string, CollectionName string, data []interface{}) *mongo.Collection {
-	collection := client.Database(DbName).Collection(CollectionName)
-	for _, p := range data {
-		pkg := p.(Package)
-		filter := bson.M{"name": pkg.Name}
+	for _, pkg := range data.([]Package) {
+		filter := bson.M{"name": pkg.URL}
 		update := bson.M{"$set": pkg}
 
 		// Create an instance of an options and set the desired options.
@@ -51,14 +34,19 @@ func UpdateData(client *mongo.Client, DbName string, CollectionName string, data
 	return collection
 }
 
-func RemoveDuplicates(client *mongo.Client, DB string) {
-	collections := ListCollections(client, DB)
-	for _, coll := range collections {
-		FindDeleteDoc(client, DB, coll)
+func removeDuplicates() {
+	client := getClient()
+	DB := DbName
+	collections := listCollections(client, DB)
+	for _, collection := range collections {
+		err := findDeleteDoc(client, DB, collection)
+		if err != nil {
+			return
+		}
 	}
 }
 
-func ListCollections(client *mongo.Client, DB string) []string {
+func listCollections(client *mongo.Client, DB string) []string {
 	collections, err := client.Database(DB).ListCollectionNames(context.TODO(), bson.D{})
 	if err != nil {
 		log.Fatal(err)
@@ -66,31 +54,7 @@ func ListCollections(client *mongo.Client, DB string) []string {
 	return collections
 }
 
-func FindDoc(client *mongo.Client, DB string, Collection string) (Package, error) {
-	//Define filter query for fetching specific document from collection
-	filter := bson.D{} //bson.D{{}} specifies 'all documents'
-	//Create a handle to the respective collection in the database.
-	collection := client.Database(DB).Collection(Collection)
-	//Perform Find operation & validate against the error.
-	cur, findError := collection.Find(context.TODO(), filter)
-	if findError != nil {
-		return Package{}, findError
-	}
-	defer cur.Close(context.TODO())
-	//Map result to slice
-	for cur.Next(context.TODO()) {
-		var t Package
-		err := cur.Decode(&t)
-		if err != nil {
-			return Package{}, err
-		} else {
-			return t, nil
-		}
-	}
-	return Package{}, nil
-}
-
-func FindDeleteDoc(client *mongo.Client, DB string, Collection string) error {
+func findDeleteDoc(client *mongo.Client, DB string, Collection string) error {
 	//Define filter query for fetching specific document from collection
 	filter := bson.D{} //bson.D{{}} specifies 'all documents'
 	//Create a handle to the respective collection in the database.
@@ -100,9 +64,14 @@ func FindDeleteDoc(client *mongo.Client, DB string, Collection string) error {
 	if findError != nil {
 		return findError
 	}
-	defer cur.Close(context.TODO())
-	namemap := make(map[string]struct{})
-	var estruct struct{}
+	defer func(cur *mongo.Cursor, ctx context.Context) {
+		err := cur.Close(ctx)
+		if err != nil {
+			log.Println("error closing cursor", err)
+			return
+		}
+	}(cur, context.TODO())
+	urls := make(map[string]struct{})
 	//Map result to slice
 	for cur.Next(context.TODO()) {
 		t := Package{}
@@ -110,39 +79,32 @@ func FindDeleteDoc(client *mongo.Client, DB string, Collection string) error {
 		if err != nil {
 			return err
 		}
-		if _, ok := namemap[t.URL]; ok {
-			DeleteOne(client, DB, Collection, t.Name) // TODO
+		if _, ok := urls[t.URL]; ok {
+			err := deleteOneDoc(client, DB, Collection, t.Name)
+			if err != nil {
+				return err
+			} // TODO
 		} else {
-			namemap[t.URL] = estruct
+			urls[t.URL] = struct{}{}
 		}
 	}
 	return nil
 }
 
-func DeleteOne(client *mongo.Client, DB string, Collection string, name string) error {
-	//Define filter query for fetching specific document from collection
-
-	// id, err := primitive.ObjectIDFromHex("_id")
-	// if err != nil {
-	// 	return err
-	// }
-
+func deleteOneDoc(client *mongo.Client, DB string, Collection string, name string) error {
 	filter := bson.M{"name": name}
-
 	//Create a handle to the respective collection in the database.
 	collection := client.Database(DB).Collection(Collection)
-	//Perform DeleteOne operation & validate against the error.
+	//Perform deleteOneDoc operation & validate against the error.
 	_, err := collection.DeleteOne(context.TODO(), filter)
 	if err != nil {
 		return err
 	}
-	//Return success without any error.
+	log.Printf("Deleted duplicate document with name: %v\n", name)
 	return nil
 }
 
-// DbConnect establish connection to mongodb cloud database for a given URI and
-// returns *mongo.Client  which needs to be used for further operations on database.
-func GetDbClient() *mongo.Client {
+func getClient() *mongo.Client {
 	client, err := mongo.NewClient(options.Client().ApplyURI(Config.MongoURL))
 	if err != nil {
 		log.Fatal(err)
@@ -155,27 +117,6 @@ func GetDbClient() *mongo.Client {
 	return client
 }
 
-func PackagePreprocess(final []Package, title string, client *mongo.Client, DbName string) []interface{} {
-	var data []interface{}
-	for i := 0; i < len(final); i++ {
-		e := final[i]
-		data = append(data, e)
-	}
-	return data
-}
-
-func DBWrite(client *mongo.Client, categories Categories) {
-	for i, category := range categories {
-		title := category.Title
-		fmt.Println(i)
-		if title == "" || category.PackageDetails == nil {
-			continue
-		}
-		data := PackagePreprocess(category.PackageDetails, title, client, DbName)
-		WriteData(client, DbName, title, data)
-	}
-}
-
 func writePackages(client *mongo.Client, categories Categories) {
 	for i, category := range categories {
 		title := category.Title
@@ -183,46 +124,7 @@ func writePackages(client *mongo.Client, categories Categories) {
 		if title == "" || category.PackageDetails == nil {
 			continue
 		}
-		data := PackagePreprocess(category.PackageDetails, title, client, DbName)
-		UpdateData(client, DbName, title, data)
+		updateCollection(client, DbName, title, &category.PackageDetails)
 	}
+	removeDuplicates()
 }
-
-// func findPackages(colName string) ([]Package, error) {
-// 	// packageList will contains packages that are
-// 	// requested by user by providing category number
-// 	var packageList []Package
-// 	var cur *mongo.Cursor
-// 	var findError error
-
-// 	// Get database name and client from config
-// 	client := GetDbClient()
-// 	DB := GetPackageDbName()
-
-// 	// Get collection handle
-// 	collection := client.Database(DB).Collection(colName)
-
-// 	// bson.D{} specifies 'all documents'
-// 	filter := bson.D{}
-
-// 	// Find  all documents in the "Collection"
-// 	cur, findError = collection.Find(context.TODO(), filter)
-
-// 	if findError != nil {
-// 		return nil, findError
-// 	}
-
-// 	defer cur.Close(context.TODO())
-
-// 	//Map result to slice
-// 	for cur.Next(context.TODO()) {
-// 		p := Package{}
-// 		err := cur.Decode(&p)
-// 		if err != nil {
-// 			return nil, err
-// 		} else {
-// 			packageList = append(packageList, p)
-// 		}
-// 	}
-// 	return packageList, nil
-// }
