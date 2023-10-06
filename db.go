@@ -124,7 +124,7 @@ func writePackages(client *mongo.Client, categories Categories) {
 		if title == "" || category.PackageDetails == nil {
 			continue
 		}
-		updateCollection(client, DbName, title, &category.PackageDetails)
+		updateCollection(client, DbName, title, category.PackageDetails)
 	}
 	removeDuplicates()
 }
